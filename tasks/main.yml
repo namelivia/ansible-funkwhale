@@ -1,0 +1,66 @@
+---
+- name: 'Check mandatory variables are defined'
+  assert:
+    that:
+      - application_name is defined
+      - docker_network_name is defined
+      - loki_url is defined
+      - jwt_auth_jwk_set_url is defined
+      - log_level is defined
+      - host_port is defined
+
+- name: Create the dockernetwork
+  docker_network:
+    name: "{{ docker_network_name }}"
+
+- name: Create the files directory
+  file:
+    path: "{{ hostvars[inventory_hostname].working_directory }}{{ application_name }}/files"
+    state: directory
+    mode: 0700
+
+- name: Create api container
+  docker_container:
+    name: "{{ application_name }}-api"
+    image: "funkwhale/api:1.3.1"
+    restart_policy: "always"
+    cleanup: true
+    pull: true
+    log_driver: "loki"
+    log_options:
+      loki-url: "{{ loki_url }}"
+      loki-batch-size: "400"
+    networks:
+      - name: "{{ docker_network_name }}"
+    volumes:
+      - "{{ hostvars[inventory_hostname].working_directory }}{{ application_name }}/files/music:/srv/funkwhale/data/music"
+
+- name: Create frontend container
+  docker_container:
+    name: "{{ application_name }}-frontend"
+    image: "funkwhale/front:1.3.1"
+    restart_policy: "always"
+    cleanup: true
+    pull: true
+    log_driver: "loki"
+    log_options:
+      loki-url: "{{ loki_url }}"
+      loki-batch-size: "400"
+    networks:
+      - name: "{{ docker_network_name }}"
+    volumes:
+      - "{{ hostvars[inventory_hostname].working_directory }}{{ application_name }}/files/music:/srv/funkwhale/data/music"
+    exposed_ports:
+      - "80"
+    published_ports:
+      - "0.0.0.0:{{ host_port }}:80"
+
+- name: Setup file backups
+  include_role:
+    name: ansible-backups
+    tasks_from: setup-file-backups
+
+- name: Setup S3 backups
+  include_role:
+    name: ansible-backups
+    tasks_from: setup-s3-backups
